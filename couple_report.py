@@ -864,7 +864,7 @@ def page_person(pdf, cm_df, smly_df, avg_df, n90, person, chart_path):
 
     _section_gap(pdf)
     _check_space(pdf, 25)
-    sec_hdr(pdf, f"{person} - Monthly Summary (Own + 50% of Shared)", r, g, b)
+    sec_hdr(pdf, f"{person} - Monthly Summary", r, g, b)
 
     _check_space(pdf, 30)
     kpi_boxes(
@@ -906,7 +906,7 @@ def page_person(pdf, cm_df, smly_df, avg_df, n90, person, chart_path):
 
     # per-category breakdown: person's own + 50% of Joint expenses
     _check_space(pdf, 25)
-    sec_hdr(pdf, f"{person} - Category Breakdown (Own + 50% of Shared)", r, g, b)
+    sec_hdr(pdf, f"{person} - Category Breakdown", r, g, b)
     cm_c = cat_totals(cm_combined)
     sm_c = cat_totals(smly_combined)
     av_c = cat_totals(avg_combined, n90) if n90 else cat_totals(avg_combined)
@@ -952,7 +952,7 @@ def page_couple_combined(pdf, cm_df, smly_df, avg_df, n90, lbl_cm, lbl_ly):
     """Household total: Isa + Toio + Joint combined."""
     _section_gap(pdf)
     _check_space(pdf, 25)
-    sec_hdr(pdf, "Couple Combined - Household Total", 39, 174, 96)
+    sec_hdr(pdf, "Combined - Household Total", 39, 174, 96)
 
     cm_s = summarize(cm_df)
     smly_s = summarize(smly_df)
@@ -998,7 +998,7 @@ def page_couple_combined(pdf, cm_df, smly_df, avg_df, n90, lbl_cm, lbl_ly):
 
     # category breakdown for the whole household
     _check_space(pdf, 25)
-    sec_hdr(pdf, "Couple Combined - Category Breakdown", 39, 174, 96)
+    sec_hdr(pdf, "Household Total - Category Breakdown", 39, 174, 96)
     cm_c = cat_totals(cm_df)
     sm_c = cat_totals(smly_df)
     av_c = (
@@ -1218,14 +1218,8 @@ def main():
     smly_df = period(df, cy - 1, cm)
     avg_df, n90 = prior_3m(df, cy, cm)
 
-    cm_s = summarize(cm_df)
-    smly_s = summarize(smly_df)
-    avg_s = summarize(avg_df, n90) if n90 else summarize(avg_df)
-
     # ── Charts ──
     print("Generating charts...")
-    cat_c = chart_cat_compare(cm_df, smly_df, avg_df, n90, "_cat.png")
-    pie_c = chart_pie(cm_df, f"Expense Distribution - {lbl}", "_pie.png")
     trend_c = chart_trend(df, cy, cm, "_trend.png")
     rate_c = chart_savings_rate(df, cy, cm, "_rate.png")
     income_c = chart_income_3m(df, cy, cm, "_income.png")
@@ -1246,8 +1240,6 @@ def main():
 
     pdf.add_page()
     page_couple_combined(pdf, cm_df, smly_df, avg_df, n90, lbl, lbl_ly)
-    page_summary(pdf, cm_s, smly_s, avg_s, n90, lbl, lbl_ly)
-    page_categories(pdf, cm_df, smly_df, avg_df, n90, cat_c, pie_c)
     page_person(pdf, cm_df, smly_df, avg_df, n90, "Isa", isa_c)
     page_person(pdf, cm_df, smly_df, avg_df, n90, "Toio", toio_c)
     page_splurge(pdf, df, cy, cm, sp_c, spm_c)
