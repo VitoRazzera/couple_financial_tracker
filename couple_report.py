@@ -35,24 +35,7 @@ SPLURGE_LIMIT = 5_000  # $ per person per year
 
 PERSONS = ["Isa", "Toio"]
 
-EXPENSE_CATEGORIES = [
-    "Accommodation",
-    "Beauty",
-    "Eat Out",
-    "Education",
-    "Entertainment",
-    "Groceries",
-    "Health",
-    "Others",
-    "Phone",
-    "Shopping",
-    "Sport",
-    "Subscription",
-    "Tax",
-    "Transport",
-    "Travel",
-    "Visa",
-]
+EXPENSE_CATEGORIES = []  # populated dynamically from CSV after load()
 
 MONTH_NAMES = [
     "January",
@@ -150,6 +133,7 @@ def _bar_style(ax, currency=True):
 
 # ── DATA ──────────────────────────────────────────────────────────────────────
 def load(path):
+    global EXPENSE_CATEGORIES
     df = pd.read_csv(path)
     df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
     df["Amount"] = df["Amount"].apply(_clean)
@@ -161,6 +145,9 @@ def load(path):
     df["_ym"] = df["Date"].dt.to_period("M")
     df["_exp"] = df["Category"] != "Income"
     df["_splurge"] = df["Splurge"].str.lower() == "splurge"
+    EXPENSE_CATEGORIES = sorted(
+        df.loc[df["_exp"], "Category"].dropna().unique().tolist()
+    )
     return df
 
 
@@ -866,27 +853,25 @@ def page_person(pdf, cm_df, smly_df, avg_df, n90, person, chart_path):
     colour = {"Isa": (155, 89, 182), "Toio": (52, 152, 219)}
     r, g, b = colour.get(person, (41, 128, 185))
 
-    # Income = person's own; Expenses = 50% of ALL couple expenses (fair split).
-    cm_p = pfilter(cm_df, person)
-    smly_p = pfilter(smly_df, person)
-    avg_p = pfilter(avg_df, person)
+    # Person's own transactions + 50% of Joint (shared couple) transactions
+    cm_combined = combined_person_df(cm_df, person)
+    smly_combined = combined_person_df(smly_df, person)
+    avg_combined = combined_person_df(avg_df, person)
 
-    cm_s = summarize_person(cm_p, cm_df)
-    smly_s = summarize_person(smly_p, smly_df)
-    avg_s = (
-        summarize_person(avg_p, avg_df, n90) if n90 else summarize_person(avg_p, avg_df)
-    )
+    cm_s = summarize(cm_combined)
+    smly_s = summarize(smly_combined)
+    avg_s = summarize(avg_combined, n90) if n90 else summarize(avg_combined)
 
     _section_gap(pdf)
     _check_space(pdf, 25)
-    sec_hdr(pdf, f"{person} - Monthly Summary (50% of Couple Expenses)", r, g, b)
+    sec_hdr(pdf, f"{person} - Monthly Summary (Own + 50% of Shared)", r, g, b)
 
     _check_space(pdf, 30)
     kpi_boxes(
         pdf,
         [
             ("Income", fc(cm_s["income"]), "Personal"),
-            ("Expenses", fc(cm_s["expenses"]), "50% of Couple Total"),
+            ("Expenses", fc(cm_s["expenses"]), "Own + 50% Shared"),
             ("Net Savings", fc(cm_s["net"]), ""),
             ("Savings Rate", fp(cm_s["rate"]), ""),
         ],
@@ -919,12 +904,12 @@ def page_person(pdf, cm_df, smly_df, avg_df, n90, person, chart_path):
         ["L", "R", "R", "C", "R", "C"],
     )
 
-    # per-category breakdown: 50% of couple total per category
+    # per-category breakdown: person's own + 50% of Joint expenses
     _check_space(pdf, 25)
-    sec_hdr(pdf, f"{person} - Category Breakdown (50% of Couple Total)", r, g, b)
-    cm_c = cat_totals(cm_df) / 2
-    sm_c = cat_totals(smly_df) / 2
-    av_c = cat_totals(avg_df, n90) / 2 if n90 else cat_totals(avg_df) / 2
+    sec_hdr(pdf, f"{person} - Category Breakdown (Own + 50% of Shared)", r, g, b)
+    cm_c = cat_totals(cm_combined)
+    sm_c = cat_totals(smly_combined)
+    av_c = cat_totals(avg_combined, n90) if n90 else cat_totals(avg_combined)
 
     cat_rows = []
     for cat in EXPENSE_CATEGORIES:
