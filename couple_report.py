@@ -67,11 +67,15 @@ class PDF(FPDF):
         self.set_font("Arial", "B", 8)
         self.set_text_color(255, 255, 255)
         self.set_xy(8, 1.5)
-        self.cell(140, 8, f"Couple Financial Report - {self._lbl}")
+        self.cell(80, 8, "GetReady Intelligence · Couple Financial Tracker")
+        self.set_font("Arial", "", 8)
+        self.set_xy(90, 1.5)
+        self.cell(75, 8, f"Report Period: {self._lbl}", align="C")
+        self.set_font("Arial", "B", 8)
         self.set_xy(155, 1.5)
         self.cell(45, 8, f"Page {self.page_no()}", align="R")
         self.set_text_color(0, 0, 0)
-        self.ln(8)
+        self.set_y(18)  # consistent top margin on every page
 
     def footer(self):
         self.set_y(-11)
@@ -80,7 +84,7 @@ class PDF(FPDF):
         self.cell(
             0,
             8,
-            f"Generated {datetime.now().strftime('%d %b %Y %H:%M')} · Confidential",
+            f"Generated {datetime.now().strftime('%d %b %Y %H:%M')} · GetReady Intelligence",
             align="C",
         )
         self.set_text_color(0, 0, 0)
@@ -731,9 +735,14 @@ def tbl(pdf, headers, rows, widths, aligns=None):
 
 
 # ── PDF LAYOUT HELPERS ────────────────────────────────────────────────────────
+_TOP_MARGIN = 18  # must match header set_y()
+
+
 def _section_gap(pdf):
-    """Thin grey rule + small vertical gap between sections (no forced page break)."""
-    pdf.ln(4)
+    """Thin grey rule + small vertical gap between sections (no forced page break).
+    Skips the leading gap when at the top of the page to keep all pages consistent."""
+    if pdf.get_y() > _TOP_MARGIN + 4:
+        pdf.ln(4)
     y = pdf.get_y()
     pdf.set_draw_color(210, 210, 210)
     pdf.line(10, y, 200, y)
