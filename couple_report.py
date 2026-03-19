@@ -18,11 +18,13 @@ import sys
 import warnings
 from datetime import datetime
 
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import squarify
 from fpdf import FPDF
 
 warnings.filterwarnings("ignore")
@@ -358,7 +360,7 @@ def _chart_metric_3m(df, cy, cm, metric_key, title, is_pct, fname):
     max_v = max((abs(v) for v in all_vals), default=1) or 1
     offset = max_v * 0.025
 
-    fig, ax = plt.subplots(figsize=(9, 4.4))
+    fig, ax = plt.subplots(figsize=(9, 4.0))
     bars1 = ax.bar(x - w / 2, curr_vals, w, label=str(cy), color=col_curr)
     bars2 = ax.bar(x + w / 2, ly_vals, w, label=f"Same Month {cy - 1}", color=col_ly)
 
@@ -450,26 +452,62 @@ def chart_savings_rate(df, cy, cm, fname):
 
 def chart_income_3m(df, cy, cm, fname):
     return _chart_metric_3m(
-        df,
-        cy,
-        cm,
-        "income",
-        f"{cy} Income - Last 4 Months vs Same Month LY",
-        False,
-        fname,
+        df, cy, cm, "income",
+        f"{cy} Monthly Income - Last 4 Months vs Same Month LY", False, fname,
     )
 
 
 def chart_expense_3m(df, cy, cm, fname):
     return _chart_metric_3m(
-        df,
-        cy,
-        cm,
-        "expenses",
-        f"{cy} Expenses - Last 4 Months vs Same Month LY",
-        False,
-        fname,
+        df, cy, cm, "expenses",
+        f"{cy} Monthly Expenses - Last 4 Months vs Same Month LY", False, fname,
     )
+
+
+def chart_rate_3m(df, cy, cm, fname):
+    return _chart_metric_3m(
+        df, cy, cm, "rate",
+        f"{cy} Monthly Savings Rate - Last 4 Months vs Same Month LY", True, fname,
+    )
+
+
+def chart_ytd_net(df, cy, cm, fname):
+    """YTD monthly net savings bar chart — CY vs LY, full year view."""
+    ml = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    months = list(range(1, cm + 1))
+    cy_net = [summarize(period(df, cy, m))["net"] for m in months]
+    ly_net = [summarize(period(df, cy - 1, m))["net"] for m in months]
+    lbls = [ml[m - 1] for m in months]
+
+    x, w = np.arange(len(months)), 0.35
+    max_v = max((abs(v) for v in cy_net + ly_net), default=1) or 1
+    offset = max_v * 0.02
+
+    fig, ax = plt.subplots(figsize=(13, 5))
+    bars1 = ax.bar(x - w / 2, cy_net, w, label=str(cy), color="#00aa44")
+    bars2 = ax.bar(x + w / 2, ly_net, w, label=str(cy - 1), color="#66ddaa")
+
+    for bars, vals in ((bars1, cy_net), (bars2, ly_net)):
+        for bar, v in zip(bars, vals):
+            if v == 0:
+                continue
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                v + (offset if v >= 0 else -offset * 1.5),
+                f"${v:,.0f}", ha="center",
+                va="bottom" if v >= 0 else "top",
+                fontsize=7, fontweight="bold",
+            )
+
+    ax.axhline(0, color="black", lw=0.8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(lbls)
+    ax.set_title(f"YTD Net Savings by Month - {cy} vs {cy - 1}", fontweight="bold")
+    ax.legend(fontsize=9)
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"${v:,.0f}"))
+    _bar_style(ax)
+    fig.tight_layout()
+    return save_fig(fig, fname)
 
 
 def chart_splurge(sd, fname):
@@ -569,24 +607,114 @@ def chart_person_cats(cm_df, person, fname, df=None, cy=None, cm=None):
     return save_fig(fig, fname)
 
 
+def chart_household_cats(cm_df, smly_df, avg_df, n90, cy, fname):
+    """Horizontal bar chart of household expense categories — same style as per-person charts."""
+    exp_cm = cm_df[cm_df["_exp"]].groupby("Category")["Amount"].sum()
+    exp_cm = exp_cm[exp_cm > 0].sort_values()
+    if exp_cm.empty:
+        return None
+
+    cats = exp_cm.index.tolist()
+    cm_vals = exp_cm.values.tolist()
+
+    ly_exp = smly_df[smly_df["_exp"]].groupby("Category")["Amount"].sum() if not smly_df.empty else pd.Series(dtype=float)
+    ly_vals = [ly_exp.get(c, 0) for c in cats]
+
+    n_ly = avg_df["_mo"].nunique() if not avg_df.empty else 0
+    if n_ly:
+        ly_total = avg_df[avg_df["_exp"]].groupby("Category")["Amount"].sum()
+        ly_avg_vals = [ly_total.get(c, 0) / n_ly for c in cats]
+    else:
+        ly_avg_vals = [0] * len(cats)
+
+    y = np.arange(len(cats))
+    w = 0.28
+    fig_h = max(4, len(cats) * 0.75)
+    fig, ax = plt.subplots(figsize=(9, fig_h))
+
+    bars_cm  = ax.barh(y + w, cm_vals,      w, label="This Month",           color="#2980b9")
+    bars_ly  = ax.barh(y,     ly_vals,      w, label=f"Same Month {cy - 1}", color="#e74c3c", alpha=0.85)
+    bars_avg = ax.barh(y - w, ly_avg_vals,  w, label=f"{cy - 1} Monthly Avg",color="#f39c12", alpha=0.85)
+
+    for bars, vals in [(bars_cm, cm_vals), (bars_ly, ly_vals), (bars_avg, ly_avg_vals)]:
+        for bar, v in zip(bars, vals):
+            if v > 0:
+                ax.text(v + max(cm_vals) * 0.01, bar.get_y() + bar.get_height() / 2,
+                        f"${v:,.0f}", va="center", fontsize=7)
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(cats)
+    ax.legend(fontsize=8)
+    ax.set_title("Household - Expense Breakdown (This Month vs LY)", fontweight="bold")
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"${v:,.0f}"))
+    _bar_style(ax, currency=False)
+    fig.tight_layout()
+    return save_fig(fig, fname)
+
+
 def chart_pie(cm_df, title, fname):
     cats = cat_totals(cm_df)
-    cats = cats[cats > 0]
+    cats = cats[cats > 0].sort_values(ascending=False)
     if cats.empty:
         return None
-    fig, ax = plt.subplots(figsize=(8, 6))
-    _, _, autos = ax.pie(
-        cats.values,
-        labels=cats.index,
-        autopct="%1.1f%%",
-        startangle=140,
-        pctdistance=0.82,
-        colors=sns.color_palette("Set2", len(cats)),
+
+    total = cats.sum()
+    n = len(cats)
+    colors = sns.color_palette("Set2", n)
+
+    fig, ax = plt.subplots(figsize=(14, 13))
+
+    # Compute treemap layout — invert y so largest tile is top-left
+    normed = squarify.normalize_sizes(cats.values.tolist(), 100, 100)
+    rects  = squarify.squarify(normed, 0, 0, 100, 100)
+
+    for rect, color, (cat, val) in zip(rects, colors, cats.items()):
+        x, y, dx, dy = rect["x"], rect["y"], rect["dx"], rect["dy"]
+        # Soften the palette for better black-text contrast
+        softened = tuple(min(1.0, c * 0.75 + 0.25) for c in color)
+        ax.add_patch(mpatches.Rectangle((x, y), dx, dy,
+                                        facecolor=softened, edgecolor="white", lw=2))
+        pct = val / total * 100
+        # Black labels — readable on any lightened tile
+        if dx >= 10 and dy >= 8:
+            label = f"{cat}\n${val:,.0f}\n{pct:.1f}%"
+            fs = max(7.5, min(12, min(dx, dy) * 0.6))
+            ax.text(x + dx / 2, y + dy / 2, label,
+                    ha="center", va="center", fontsize=fs,
+                    fontweight="bold", color="#1a1a1a")
+        elif dx >= 5 and dy >= 5:
+            ax.text(x + dx / 2, y + dy / 2, f"{pct:.1f}%",
+                    ha="center", va="center", fontsize=7,
+                    fontweight="bold", color="#1a1a1a")
+
+    ax.set_xlim(0, 100)
+    ax.set_ylim(100, 0)   # invert → descending order reads top-left to bottom-right
+    ax.axis("off")
+
+    # ── Legend at the bottom — one patch per category ──
+    softened_colors = [tuple(min(1.0, c * 0.75 + 0.25) for c in col) for col in colors]
+    legend_handles = [
+        mpatches.Patch(facecolor=softened_colors[i],
+                       label=f"  {c}   ${v:,.0f}  ({v / total * 100:.1f}%)")
+        for i, (c, v) in enumerate(zip(cats.index, cats.values))
+    ]
+    fig.legend(
+        handles=legend_handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 0.0),
+        ncol=3,
+        frameon=True,
+        facecolor="#f9f9f9",
+        edgecolor="#cccccc",
+        fontsize=11,
+        handlelength=2.5,
+        handleheight=1.6,
+        handletextpad=1.0,
+        columnspacing=2.0,
+        labelspacing=0.8,
     )
-    for t in autos:
-        t.set_fontsize(8)
-    ax.set_title(title, fontweight="bold")
-    fig.tight_layout()
+
+    fig.tight_layout(rect=[0, 0.18, 1, 0.98])
     return save_fig(fig, fname)
 
 
@@ -957,7 +1085,7 @@ def page_person(pdf, cm_df, smly_df, avg_df, n90, person, chart_path):
         pdf.image(chart_path, x=10, w=190)
 
 
-def page_couple_combined(pdf, cm_df, smly_df, avg_df, n90, lbl_cm, lbl_ly):
+def page_couple_combined(pdf, cm_df, smly_df, avg_df, n90, lbl_cm, lbl_ly, household_chart=None):
     """Household total: Isa + Toio + Joint combined."""
     _section_gap(pdf)
     _check_space(pdf, 25)
@@ -1041,6 +1169,10 @@ def page_couple_combined(pdf, cm_df, smly_df, avg_df, n90, lbl_cm, lbl_ly):
             ["L", "R", "R", "C", "R", "C"],
         )
 
+    if household_chart and os.path.exists(household_chart):
+        _check_space(pdf, 80)
+        pdf.image(household_chart, x=10, w=190)
+
 
 def page_splurge(pdf, df, cy, cm, splurge_chart, monthly_chart):
     _section_gap(pdf)
@@ -1086,9 +1218,23 @@ def page_splurge(pdf, df, cy, cm, splurge_chart, monthly_chart):
         pdf.image(monthly_chart, x=10, w=190)
 
 
-def page_big_picture(
-    pdf, df, cy, cm, trend_chart, income_chart, expense_chart, rate_chart
-):
+def page_pie(pdf, pie_c, lbl):
+    _section_gap(pdf)
+    sec_hdr(pdf, f"Expense Distribution - {lbl}")
+    if pie_c and os.path.exists(pie_c):
+        pdf.image(pie_c, x=5, w=200)
+
+
+def page_monthly_trends(pdf, cy, income_c, expense_c, rate_c):
+    _section_gap(pdf)
+    sec_hdr(pdf, f"{cy} - Last 3 Months vs Same Month LY")
+    for chart in [income_c, expense_c, rate_c]:
+        if chart and os.path.exists(chart):
+            pdf.ln(3)
+            pdf.image(chart, x=10, w=190)
+
+
+def page_big_picture(pdf, df, cy, cm, trend_chart, ytd_net_chart):
     _section_gap(pdf)
     _check_space(pdf, 25)
     sec_hdr(pdf, f"Big Picture - YTD {cy} vs {cy - 1}")
@@ -1155,29 +1301,18 @@ def page_big_picture(
     )
 
     if trend_chart and os.path.exists(trend_chart):
-        _check_space(pdf, 75)
+        _section_gap(pdf)
+        _check_space(pdf, 25)
+        sec_hdr(pdf, f"Big Picture - YTD {cy} vs {cy - 1} Chart 1")
+        _check_space(pdf, 85)
         pdf.image(trend_chart, x=10, w=190)
 
-    if income_chart and os.path.exists(income_chart):
+    if ytd_net_chart and os.path.exists(ytd_net_chart):
         _section_gap(pdf)
         _check_space(pdf, 25)
-        sec_hdr(pdf, f"{cy} Monthly Income - Last 3 Months vs Same Month LY")
-        _check_space(pdf, 75)
-        pdf.image(income_chart, x=10, w=190)
-
-    if expense_chart and os.path.exists(expense_chart):
-        _section_gap(pdf)
-        _check_space(pdf, 25)
-        sec_hdr(pdf, f"{cy} Monthly Expenses - Last 3 Months vs Same Month LY")
-        _check_space(pdf, 75)
-        pdf.image(expense_chart, x=10, w=190)
-
-    if rate_chart and os.path.exists(rate_chart):
-        _section_gap(pdf)
-        _check_space(pdf, 25)
-        sec_hdr(pdf, f"{cy} Monthly Savings Rate - Last 3 Months vs Same Month LY")
-        _check_space(pdf, 75)
-        pdf.image(rate_chart, x=10, w=190)
+        sec_hdr(pdf, f"Big Picture - YTD {cy} vs {cy - 1} Chart 2")
+        _check_space(pdf, 85)
+        pdf.image(ytd_net_chart, x=10, w=190)
 
 
 # ── MAIN ──────────────────────────────────────────────────────────────────────
@@ -1229,17 +1364,20 @@ def main():
 
     # ── Charts ──
     print("Generating charts...")
-    trend_c = chart_trend(df, cy, cm, "_trend.png")
-    rate_c = chart_savings_rate(df, cy, cm, "_rate.png")
+    household_c = chart_household_cats(cm_df, smly_df, avg_df, n90, cy, "_household.png")
+    pie_c    = chart_pie(cm_df, f"Expense Distribution - {lbl}", "_pie.png")
     income_c = chart_income_3m(df, cy, cm, "_income.png")
     expense_c = chart_expense_3m(df, cy, cm, "_expense.png")
+    rate_c   = chart_rate_3m(df, cy, cm, "_rate.png")
+    trend_c  = chart_trend(df, cy, cm, "_trend.png")
+    ytd_net_c = chart_ytd_net(df, cy, cm, "_ytdnet.png")
 
     ytd_sp = df[(df["_yr"] == cy) & (df["_mo"] <= cm) & df["_splurge"]]
     sd = {p: {"used": ytd_sp[ytd_sp["Name"] == p]["Amount"].sum()} for p in PERSONS}
-    sp_c = chart_splurge(sd, "_splurge.png")
+    sp_c  = chart_splurge(sd, "_splurge.png")
     spm_c = chart_person_splurge_monthly(df, cy, cm, "_splurge_monthly.png")
 
-    isa_c = chart_person_cats(combined_person_df(cm_df, "Isa"), "Isa", "_isa.png", df, cy, cm)
+    isa_c  = chart_person_cats(combined_person_df(cm_df, "Isa"),  "Isa",  "_isa.png",  df, cy, cm)
     toio_c = chart_person_cats(combined_person_df(cm_df, "Toio"), "Toio", "_toio.png", df, cy, cm)
 
     # ── PDF ──
@@ -1247,12 +1385,26 @@ def main():
     pdf = PDF(lbl)
     pdf.set_auto_page_break(auto=True, margin=15)
 
-    pdf.add_page()
-    page_couple_combined(pdf, cm_df, smly_df, avg_df, n90, lbl, lbl_ly)
+    pdf.add_page()                                                           # page 1
+    page_couple_combined(pdf, cm_df, smly_df, avg_df, n90, lbl, lbl_ly, household_c)
+
+    pdf.add_page()                                                           # page 2
+    page_pie(pdf, pie_c, lbl)
+
+    pdf.add_page()                                                           # page 3
     page_person(pdf, cm_df, smly_df, avg_df, n90, "Isa", isa_c)
+
+    pdf.add_page()                                                           # page 4
     page_person(pdf, cm_df, smly_df, avg_df, n90, "Toio", toio_c)
+
+    pdf.add_page()                                                           # page 5
     page_splurge(pdf, df, cy, cm, sp_c, spm_c)
-    page_big_picture(pdf, df, cy, cm, trend_c, income_c, expense_c, rate_c)
+
+    pdf.add_page()                                                           # page 6
+    page_monthly_trends(pdf, cy, income_c, expense_c, rate_c)
+
+    pdf.add_page()                                                           # page 7
+    page_big_picture(pdf, df, cy, cm, trend_c, ytd_net_c)
 
     pdf.output(args.out)
     print(f"PDF saved: {args.out}")
