@@ -456,13 +456,13 @@ def chart_rate_3m(df, cy, cm, fname):
 
 
 def chart_ytd_net(df, cy, cm, fname):
-    """Net savings bar chart — last 12 months, green/red by sign."""
+    """Net savings bar chart — last 24 months, green/red by sign."""
     ml = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 
-    # Build last 12 months ending at (cy, cm)
+    # Build last 24 months ending at (cy, cm)
     months = []
     yr, mo = cy, cm
-    for _ in range(12):
+    for _ in range(24):
         months.append((yr, mo))
         mo -= 1
         if mo == 0:
@@ -495,7 +495,7 @@ def chart_ytd_net(df, cy, cm, fname):
     ax.axhline(0, color="black", lw=0.8)
     ax.set_xticks(x)
     ax.set_xticklabels(lbls, rotation=90, fontsize=11, fontweight="bold")
-    ax.set_title("Net Savings — Last 12 Months", fontweight="bold")
+    ax.set_title("Net Savings — Last 24 Months", fontweight="bold")
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"${v:,.0f}"))
     _bar_style(ax)
     fig.tight_layout()
@@ -1309,7 +1309,7 @@ def page_big_picture(pdf, df, cy, cm, trend_chart, ytd_net_chart):
 
 def page_big_picture_charts(pdf, cy, trend_chart, ytd_net_chart):
     _section_gap(pdf)
-    sec_hdr(pdf, f"Big Picture - YTD {cy} vs {cy - 1} Chart 1")
+    sec_hdr(pdf, "Recent Past Evaluation: Last 24 Months Revenue, Expenses and Profit")
     if trend_chart and os.path.exists(trend_chart):
         pdf.ln(3)
         pdf.image(trend_chart, x=10, w=190, h=120)
