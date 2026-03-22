@@ -256,53 +256,37 @@ def chart_cat_compare(cm_df, smly_df, avg_df, n90, fname):
 
 
 def chart_trend(df, cy, cm, fname):
-    ml = [
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dec",
-    ]
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    for ax, yr in zip(axes, [cy - 1, cy]):
-        d = df[df["_yr"] == yr]
-        if yr == cy:
-            d = d[d["_mo"] <= cm]  # exclude current incomplete month
-        if d.empty:
-            ax.set_title(f"{yr} - No Data")
-            continue
-        mo = (
-            d.groupby("_mo")
-            .apply(
-                lambda g: pd.Series(
-                    {
-                        "Income": g[g["Category"] == "Income"]["Amount"].sum(),
-                        "Expenses": g[g["_exp"]]["Amount"].sum(),
-                    }
-                )
-            )
-            .reset_index()
-        )
-        lbl = [ml[m - 1] for m in mo["_mo"]]
-        ax.plot(lbl, mo["Income"], "o-", color="#2ecc71", label="Income", lw=2)
-        ax.plot(lbl, mo["Expenses"], "o-", color="#e74c3c", label="Expenses", lw=2)
-        ax.fill_between(
-            range(len(mo)), mo["Income"], mo["Expenses"], alpha=0.08, color="#3498db"
-        )
-        ax.set_title(f"{yr} - Monthly Trend", fontweight="bold")
-        ax.set_xticks(range(len(mo)))
-        ax.set_xticklabels(lbl, rotation=45, fontsize=8)
-        ax.legend(fontsize=8)
-        ax.grid(linestyle="--", alpha=0.4)
-        _bar_style(ax)
-    fig.suptitle("Income vs Expenses - Annual Trend", fontweight="bold")
+    ml = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+
+    # Build last 24 months ending at (cy, cm)
+    months = []
+    yr, mo = cy, cm
+    for _ in range(24):
+        months.append((yr, mo))
+        mo -= 1
+        if mo == 0:
+            mo = 12
+            yr -= 1
+    months.reverse()
+
+    lbls = [f"{ml[m-1]} '{str(y)[2:]}" for y, m in months]
+    incomes  = [summarize(period(df, y, m))["income"]   for y, m in months]
+    expenses = [summarize(period(df, y, m))["expenses"] for y, m in months]
+
+    fig, ax = plt.subplots(figsize=(14, 6))
+    xi = list(range(len(months)))
+
+    ax.plot(xi, incomes,  "o-", color="#2ecc71", label="Income",   lw=2.5, markersize=5)
+    ax.plot(xi, expenses, "o-", color="#e74c3c", label="Expenses", lw=2.5, markersize=5)
+    ax.fill_between(xi, incomes, expenses, alpha=0.08, color="#3498db")
+
+    ax.set_title("Income vs Expenses — Last 24 Months", fontweight="bold", fontsize=14)
+    ax.set_xticks(xi)
+    ax.set_xticklabels(lbls, rotation=90, fontsize=11, fontweight="bold")
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"${v:,.0f}"))
+    ax.legend(fontsize=10)
+    ax.grid(linestyle="--", alpha=0.4)
+    _bar_style(ax)
     fig.tight_layout()
     return save_fig(fig, fname)
 
@@ -472,38 +456,46 @@ def chart_rate_3m(df, cy, cm, fname):
 
 
 def chart_ytd_net(df, cy, cm, fname):
-    """YTD monthly net savings bar chart — CY vs LY, full year view."""
+    """Net savings bar chart — last 12 months, green/red by sign."""
     ml = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-    months = list(range(1, cm + 1))
-    cy_net = [summarize(period(df, cy, m))["net"] for m in months]
-    ly_net = [summarize(period(df, cy - 1, m))["net"] for m in months]
-    lbls = [ml[m - 1] for m in months]
 
-    x, w = np.arange(len(months)), 0.35
-    max_v = max((abs(v) for v in cy_net + ly_net), default=1) or 1
+    # Build last 12 months ending at (cy, cm)
+    months = []
+    yr, mo = cy, cm
+    for _ in range(12):
+        months.append((yr, mo))
+        mo -= 1
+        if mo == 0:
+            mo = 12
+            yr -= 1
+    months.reverse()
+
+    lbls = [f"{ml[m-1]} '{str(y)[2:]}" for y, m in months]
+    nets  = [summarize(period(df, y, m))["net"] for y, m in months]
+    colors = ["#00aa44" if n >= 0 else "#e74c3c" for n in nets]
+
+    x = np.arange(len(months))
+    max_v = max((abs(v) for v in nets), default=1) or 1
     offset = max_v * 0.02
 
     fig, ax = plt.subplots(figsize=(13, 5))
-    bars1 = ax.bar(x - w / 2, cy_net, w, label=str(cy), color="#00aa44")
-    bars2 = ax.bar(x + w / 2, ly_net, w, label=str(cy - 1), color="#66ddaa")
+    bars = ax.bar(x, nets, 0.6, color=colors)
 
-    for bars, vals in ((bars1, cy_net), (bars2, ly_net)):
-        for bar, v in zip(bars, vals):
-            if v == 0:
-                continue
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                v + (offset if v >= 0 else -offset * 1.5),
-                f"${v:,.0f}", ha="center",
-                va="bottom" if v >= 0 else "top",
-                fontsize=7, fontweight="bold",
-            )
+    for bar, v in zip(bars, nets):
+        if v == 0:
+            continue
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            v + (offset if v >= 0 else -offset * 1.5),
+            f"${v:,.0f}", ha="center",
+            va="bottom" if v >= 0 else "top",
+            fontsize=7, fontweight="bold",
+        )
 
     ax.axhline(0, color="black", lw=0.8)
     ax.set_xticks(x)
-    ax.set_xticklabels(lbls)
-    ax.set_title(f"YTD Net Savings by Month - {cy} vs {cy - 1}", fontweight="bold")
-    ax.legend(fontsize=9)
+    ax.set_xticklabels(lbls, rotation=90, fontsize=11, fontweight="bold")
+    ax.set_title("Net Savings — Last 12 Months", fontweight="bold")
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: f"${v:,.0f}"))
     _bar_style(ax)
     fig.tight_layout()
@@ -1315,6 +1307,17 @@ def page_big_picture(pdf, df, cy, cm, trend_chart, ytd_net_chart):
         pdf.image(ytd_net_chart, x=10, w=190)
 
 
+def page_big_picture_charts(pdf, cy, trend_chart, ytd_net_chart):
+    _section_gap(pdf)
+    sec_hdr(pdf, f"Big Picture - YTD {cy} vs {cy - 1} Chart 1")
+    if trend_chart and os.path.exists(trend_chart):
+        pdf.ln(3)
+        pdf.image(trend_chart, x=10, w=190, h=120)
+    if ytd_net_chart and os.path.exists(ytd_net_chart):
+        pdf.ln(3)
+        pdf.image(ytd_net_chart, x=10, w=190, h=120)
+
+
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 def main():
     ap = argparse.ArgumentParser(description="Couple Financial Report")
@@ -1366,9 +1369,9 @@ def main():
     print("Generating charts...")
     household_c = chart_household_cats(cm_df, smly_df, avg_df, n90, cy, "_household.png")
     pie_c    = chart_pie(cm_df, f"Expense Distribution - {lbl}", "_pie.png")
-    income_c = chart_income_3m(df, cy, cm, "_income.png")
-    expense_c = chart_expense_3m(df, cy, cm, "_expense.png")
-    rate_c   = chart_rate_3m(df, cy, cm, "_rate.png")
+    # income_c = chart_income_3m(df, cy, cm, "_income.png")   # commented out with page_monthly_trends
+    # expense_c = chart_expense_3m(df, cy, cm, "_expense.png")
+    # rate_c   = chart_rate_3m(df, cy, cm, "_rate.png")
     trend_c  = chart_trend(df, cy, cm, "_trend.png")
     ytd_net_c = chart_ytd_net(df, cy, cm, "_ytdnet.png")
 
@@ -1392,19 +1395,22 @@ def main():
     page_pie(pdf, pie_c, lbl)
 
     pdf.add_page()                                                           # page 3
-    page_person(pdf, cm_df, smly_df, avg_df, n90, "Isa", isa_c)
+    page_big_picture_charts(pdf, cy, trend_c, ytd_net_c)
 
     pdf.add_page()                                                           # page 4
-    page_person(pdf, cm_df, smly_df, avg_df, n90, "Toio", toio_c)
+    page_person(pdf, cm_df, smly_df, avg_df, n90, "Isa", isa_c)
 
     pdf.add_page()                                                           # page 5
-    page_splurge(pdf, df, cy, cm, sp_c, spm_c)
+    page_person(pdf, cm_df, smly_df, avg_df, n90, "Toio", toio_c)
 
     pdf.add_page()                                                           # page 6
-    page_monthly_trends(pdf, cy, income_c, expense_c, rate_c)
+    page_splurge(pdf, df, cy, cm, sp_c, spm_c)
 
-    pdf.add_page()                                                           # page 7
-    page_big_picture(pdf, df, cy, cm, trend_c, ytd_net_c)
+    # pdf.add_page()                                                         # page 7 — commented out
+    # page_monthly_trends(pdf, cy, income_c, expense_c, rate_c)
+
+    # pdf.add_page()                                                         # page 8 — commented out
+    # page_big_picture(pdf, df, cy, cm, trend_c, ytd_net_c)
 
     pdf.output(args.out)
     print(f"PDF saved: {args.out}")
